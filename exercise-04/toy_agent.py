@@ -3,6 +3,7 @@ import time
 import uuid
 from pathlib import Path
 import requests
+import json
 
 ## ----- Configure Models ---------
 
@@ -42,8 +43,8 @@ You are a programming agent which works efficiently with absolutely no nonsense.
 
 Follow these rules while working.
 - Always read a file before you write or edit it.
-- Confine all modifications of the filesystem to the current working directory,
-  making sure to remain safely sandboxed.
+- Confine all filesystem accesses of any kind safely to the sandbox (the
+  `sandbox` directory in the same folder as your source).
 - Keep calling tools until the requested task is successfully accomplished (but
   always make sure each new tool call is different in some detail from previous
   tool calls).
@@ -51,13 +52,58 @@ Follow these rules while working.
   you accomplished it.
 """
 
+# ------ Sandboxing --------
+
+# Create a `sandbox` sub-directory (if it does not already exist) 
+# in the directory from which the agent code was launched
+
+SANDBOX_DIR = (Path(__file__).resolve().parent / "sandbox").resolve()
+SANDBOX_DIR.mkdir(parents=True, exist_ok=True)
+
+# Helper function to make sure that paths to be used in tool calls
+# lie within the sandbox.
+
+def resolve_in_sandbox(file_name: str) -> Path:
+    resolved = (SANDBOX_DIR / file_name).resolve()
+    if not resolved.is_relative_to(SANDBOX_DIR):
+        raise ValueError(f"path escapes the sandbox: {file_name}")
+    return resolved
+
+# ------ Tools --------
+
+def read_file(file_name: str) -> str:
+    path = resolve_in_sandbox(file_name)
+    if not path.is_file():
+        return f"ERROR: file not found: {file_name}"
+        # return (f"ERROR: file not found: {file_name} – "
+        #    f"directory contains: {list_files()}")
+    return path.read_text()
+
+READ_FILE_SCHEMA = {
+    "type": "function",
+    "function": {
+        "name": "read_file",
+        "description": "Get the full contents of a file",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "file_name": {"type": "string", "description": "The path of the file to read"},
+            },
+            "required": ["file_name"],
+        },
+    },
+}
+
+TOOLS = {"read_file": read_file}     # name -> function, for the loop to dispatch
+TOOLS_SCHEMATA = [READ_FILE_SCHEMA]  # what actually gets sent to the model
+
 ## ------ model call -------
 
-def call_zen(messages: list) -> dict:
+def call_zen(messages: list, tools: list) -> dict:
     resp = requests.post(
         ZEN_CHAT_URL,
         headers=HEADERS,
-        json={"model": MODEL, "messages": messages},
+        json={"model": MODEL, "messages": messages, "tools": tools},
         timeout=60,
     )
     resp.raise_for_status()
@@ -67,6 +113,46 @@ def call_zen(messages: list) -> dict:
         raise RuntimeError(f"Zen returned no choices: {payload}")
     return payload["choices"][0]["message"]
 
+# -----  Agentic loop -----
+
+def agentic_loop(messages: list) -> None:
+    while True:
+        # give the current message history and tool list to the model
+        message = call_zen(messages, TOOLS_SCHEMATA)
+        # add the message returned from the model to the message history
+        messages.append(message)
+        # if the returned message contains a user message, then print it
+        if message.get("content"):
+            print(message["content"])
+
+        # get the tool calls proposed by the model
+        tool_calls = message.get("tool_calls")
+        if not tool_calls:
+            break # exit the loop if there are no tool calls
+
+        # for each tool call
+        for tc in tool_calls:
+            # look up the name of the function representing the tool call
+            name = tc["function"]["name"]
+            # get the argument the model has proposed for the tool call
+            raw_arguments = tc["function"].get("arguments") or "{}"
+
+            # if the model has proposed a tool that is not in our available
+            # tools, then prepare an informative error message indicating what
+            # tools are available
+            if name not in TOOLS:
+                result = f"ERROR: unknown tool: {name} – available: {list(TOOLS)}"
+            else:
+                try:
+                    # make the tool call
+                    result = TOOLS[name](**json.loads(raw_arguments))
+                except Exception as e:
+                    result = f"ERROR: {name} failed: {type(e).__name__}: {e}"
+            # add the result of the tool call (or the constructed error message)
+            # to the message history to become part of the context for future
+            # calls.
+            messages.append({"role": "tool", "tool_call_id": tc["id"], "content": str(result)})
+
 #------- Harness Opening Message -----------
 
 def print_intro():
@@ -74,7 +160,6 @@ def print_intro():
     print("You will be prompted for input via the :")
     print("\nThe current model is " + MODEL)
     print("\n Type 'EXIT' to exit the program\n\n")
-
 
 #------ Harness entry point -------
 
@@ -89,10 +174,7 @@ if __name__ == "__main__":
         messages.append({"role": "user", "content": user})
 
         # model interaction
-        message = call_zen(messages)
-        messages.append(message)
-        if message.get("content"):
-            print(message["content"])
+        agentic_loop(messages)
 
         # new user input 
         time.sleep(1.0)
