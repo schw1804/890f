@@ -5,6 +5,10 @@ from pathlib import Path
 import requests
 import json
 
+# control VERBOSE mode
+VERBOSE = True
+# VERBOSE = False
+
 ## ----- Configure Models ---------
 
 from dotenv import load_dotenv
@@ -203,6 +207,9 @@ def agentic_loop(messages: list) -> None:
             # get the argument the model has proposed for the tool call
             raw_arguments = tc["function"].get("arguments") or "{}"
 
+            if VERBOSE:
+                print(f"---\nCalling {name} with arguments {raw_arguments}")
+
             # if the model has proposed a tool that is not in our available
             # tools, then prepare an informative error message indicating what
             # tools are available
@@ -217,6 +224,8 @@ def agentic_loop(messages: list) -> None:
             # add the result of the tool call (or the constructed error message)
             # to the message history to become part of the context for future
             # calls.
+            if VERBOSE:
+                print(f"Result: {result}\n---\n")
             messages.append({"role": "tool", "tool_call_id": tc["id"], "content": str(result)})
 
     print(f"\n[toy-agent] Stopped: hit the MAX_TURNS = {MAX_TURNS} cap for this request. "
