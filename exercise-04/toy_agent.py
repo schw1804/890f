@@ -86,7 +86,7 @@ READ_FILE_SCHEMA = {
     "type": "function",
     "function": {
         "name": "read_file",
-        "description": "Get the full contents of a file",
+        "description": "Gets the full contents of a file",
         "parameters": {
             "type": "object",
             "properties": {
@@ -106,8 +106,8 @@ LIST_FILES_SCHEMA = {
     "function": {
         "name": "list_files",
         "description":
-        ("List all files in the sandbox directory; "
-         "return only files, not directories."),
+        ("Lists all files in the sandbox directory; "
+         "returns only files, not directories."),
         "parameters": {"type": "object", "properties": {}},
     },
 }
@@ -127,12 +127,12 @@ WRITE_FILE_SCHEMA = {
     "function": {
         "name": "write_file",
         "description": (
-            "Write to a file. `mode='append'` (default) adds `contents` to the "
-            "end of the file, creating it if needed – `contents` must be ONLY "
+            "Writes to a file. `mode='append'` (default) adds `contents` to the"
+            " end of the file, creating it if needed – `contents` must be ONLY "
             "the new text to add, never a repeat of content already in the "
             "file. `mode='overwrite'` replaces the entire file with `contents`."
-            " Always `read_file` first if you need to know the current contents "
-            "before deciding what to send."
+            " Always `read_file` first if you need to know the current contents"
+            " before deciding what to send."
         ),
         "parameters": {
             "type": "object",
