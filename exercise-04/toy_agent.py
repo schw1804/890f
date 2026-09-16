@@ -74,9 +74,8 @@ def resolve_in_sandbox(file_name: str) -> Path:
 def read_file(file_name: str) -> str:
     path = resolve_in_sandbox(file_name)
     if not path.is_file():
-        return f"ERROR: file not found: {file_name}"
-        # return (f"ERROR: file not found: {file_name} – "
-        #    f"directory contains: {list_files()}")
+        return (f"ERROR: file not found: {file_name} – "
+                f"directory contains: {list_files()}")
     return path.read_text()
 
 READ_FILE_SCHEMA = {
@@ -87,15 +86,77 @@ READ_FILE_SCHEMA = {
         "parameters": {
             "type": "object",
             "properties": {
-                "file_name": {"type": "string", "description": "The path of the file to read"},
+                "file_name": {"type": "string",
+                              "description": "The path of the file to read"},
             },
             "required": ["file_name"],
         },
     },
 }
 
-TOOLS = {"read_file": read_file}     # name -> function, for the loop to dispatch
-TOOLS_SCHEMATA = [READ_FILE_SCHEMA]  # what actually gets sent to the model
+def list_files() -> list[str]:
+    return sorted(p.name for p in SANDBOX_DIR.iterdir() if p.is_file())
+
+LIST_FILES_SCHEMA = {
+    "type": "function",
+    "function": {
+        "name": "list_files",
+        "description":
+        ("List all files in the sandbox directory; "
+         "return only files, not directories."),
+        "parameters": {"type": "object", "properties": {}},
+    },
+}
+
+def write_file(file_name: str, contents: str, mode: str = "append") -> str:
+    path = resolve_in_sandbox(file_name)
+    if path.is_dir():
+        return f"ERROR: {file_name} is a directory"
+    py_mode = "a" if mode == "append" else "w"
+    verb = "appended" if mode == "append" else "wrote"
+    with path.open(mode=py_mode, encoding="utf-8") as f:
+        n = f.write(contents)
+    return f"{verb} {n} characters to {file_name}"
+
+WRITE_FILE_SCHEMA = {
+    "type": "function",
+    "function": {
+        "name": "write_file",
+        "description": (
+            "Write to a file. `mode='append'` (default) adds `contents` to the "
+            "end of the file, creating it if needed – `contents` must be ONLY "
+            "the new text to add, never a repeat of content already in the "
+            "file. `mode='overwrite'` replaces the entire file with `contents`."
+            " Always `read_file` first if you need to know the current contents "
+            "before deciding what to send."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "file_name": {
+                    "type": "string",
+                    "description": "The path of the file to which to write"},
+                "contents": {
+                    "type": "string",
+                    "description": (
+                        "For append: only the new text to add. "
+                        "For overwrite: the full desired file contents.")},
+                "mode": {
+                    "type": "string",
+                    "enum": ["append", "overwrite"],
+                    "description": "Whether to append to or overwrite the file."
+                    " Defaults to append."},
+            },
+            "required": ["file_name", "contents"],
+        },
+    },
+}
+
+# name -> function, for the loop to dispatch
+TOOLS = {"read_file": read_file, "list_files": list_files,
+         "write_file": write_file}
+# what actually gets sent to the model
+TOOLS_SCHEMATA = [READ_FILE_SCHEMA, LIST_FILES_SCHEMA, WRITE_FILE_SCHEMA]
 
 ## ------ model call -------
 
@@ -115,8 +176,13 @@ def call_zen(messages: list, tools: list) -> dict:
 
 # -----  Agentic loop -----
 
+# Cap on the number of model calls made for a single user request.
+MAX_TURNS = 25
+
 def agentic_loop(messages: list) -> None:
-    while True:
+    turns = 0
+    while turns < MAX_TURNS:
+        turns += 1
         # give the current message history and tool list to the model
         message = call_zen(messages, TOOLS_SCHEMATA)
         # add the message returned from the model to the message history
@@ -128,7 +194,7 @@ def agentic_loop(messages: list) -> None:
         # get the tool calls proposed by the model
         tool_calls = message.get("tool_calls")
         if not tool_calls:
-            break # exit the loop if there are no tool calls
+            return  # the model decided it is finished – the normal exit
 
         # for each tool call
         for tc in tool_calls:
@@ -152,6 +218,9 @@ def agentic_loop(messages: list) -> None:
             # to the message history to become part of the context for future
             # calls.
             messages.append({"role": "tool", "tool_call_id": tc["id"], "content": str(result)})
+
+    print(f"\n[toy-agent] Stopped: hit the MAX_TURNS = {MAX_TURNS} cap for this request. "
+          "The task may be unfinished.")
 
 #------- Harness Opening Message -----------
 
