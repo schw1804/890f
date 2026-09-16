@@ -234,7 +234,7 @@ def agentic_loop(messages: list) -> None:
 #------- Harness Opening Message -----------
 
 def print_intro():
-    print("Welcome to a toy chat bot!")
+    print("Welcome to a toy programming agent!")
     print("You will be prompted for input via the :")
     print("\nThe current model is " + MODEL)
     print("\n Type 'EXIT' to exit the program\n\n")
