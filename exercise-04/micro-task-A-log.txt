@@ -86,8 +86,7 @@ Both files are created:
 
 
 
-> $ pytest test_fizzbuzz.py
-
+$ pytest test_fizzbuzz.py
 ============================= test session starts ==============================
 platform linux -- Python 3.12.3, pytest-9.1.1, pluggy-1.6.0
 rootdir: /home/js/890f/exercise-04/sandbox
